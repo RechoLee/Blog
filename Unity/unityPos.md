@@ -11,6 +11,6 @@
 #### 对于屏幕坐标系，首先我们需要明确的一点是，屏幕坐标系的取值范围，或者说它的数值是怎么定义的。
 关于这点我们首先来看一下鼠标的位置信息，首先我们将它打印出来，如下图所示
 <div align="center">
-<img src="./img/unityPos1.png" width="800" height="600"/>
+<img src="./img/unityPos1.png" width="728" height="450"/>
 </div>
-![鼠标位置](./img/unityPos1.png)
+
