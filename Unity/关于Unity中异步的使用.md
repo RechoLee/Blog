@@ -12,6 +12,7 @@
 ## Unity中的异步和多线程
 > 首先说明一下，由于Unity的脚本程序是单线程执行的，所以在另一个线程中不能调用继承MonoBehaviour的组件
 
+
 看下面的一个例子
 ######Thread实现
 ```C#
@@ -92,11 +93,89 @@ public IEnumerator Func1()
     Debug.Log("Func1 over");
 }
 ```
+
 ###### 执行结果
 **从下图我们会发现一个奇怪的现象，怎么inactive后没有任何输出了呢，检查代码没有错误，我们在看看上面的图，使用async/await却能正常的执行后面的代码，这就是两者的却别所在。从本质上来说，在unity中，当一个物体变成了inactive，它上的代码也是不执行的，也就是GetComponent是不执行的（这里我们的代码就是放在这个测试物体上的），Unity中的Coroutine并没有错，而是我们需要在使用的时候注意这一点，而async/await为什么能够执行后面的代码呢，我猜测可能和async/await的语法糖背后的实现机制有关，查看了资料，最后大致了解到，当我们将一个方法标记成async方法的时候，它在执行到await的时候就返回调用了，然而await后面的逻辑是封装到一个代码块中的（语法糖背后的实现机制，有的解释是封装到IL的状态机中作为一个状态，所以相关的变量都被保存下来），等待await执行完成之后，便接着执行后续的代码块。**
 <div align="center">
 <img src="./img/asyncAwait3.png" width="728" height="450"/>
 </div>
+
+## 外文参考
+> Unity确实为我们提供了一件重要的事情。 正如你在上面的例子中看到的，我们的异步方法默认情况下将在主unity线程上运行。 在非Unity的C＃应用程序中，异步方法通常会在单独的线程中自动运行，这在Unity中将是一个大问题，因为在这些情况下，我们并不总是能够与Unity API进行交互。 没有Unity引擎的支持，我们对Unity方法/对象的调用有时会失败，因为它们将在单独的线程上执行。 在引擎框架下，它的工作原理是因为Unity提供了一个名为UnitySynchronizationContext的默认SynchronizationContext，它会自动收集每个帧排队的任何异步代码，并在主要的Unity线程上继续运行它们。
+
+> 不过事实证明，这足以令我们开始。 我们只需要一些帮助代码，让我们做一些更有趣的事情，而不仅仅是简单的时间延迟。
+
+>> 地址：[来自游戏蛮牛](http://www.manew.com/thread-108589-1-1.html)
+>> [原文地址](www.stevevermeulen.com/index.php/2017/09/23/using-async-await-in-unity3d-2017/)
+
+### 自定义 Awaiters
+目前，我们可以编写很多有趣的异步代码。 我们可以调用其他异步方法，我们可以使用Task.Delay，就像上面的例子中的那样，但不是很多。
+作为一个简单的例子，让我们添加直接在TimeSpan上等待的能力，而不是每次像上面的例子一样总是要调用Task.Delay。 如下：
+
+```c#
+public class AsyncExample : MonoBehaviour
+{
+    async void Start()
+    {
+        await TimeSpan.FromSeconds(1);
+    }
+}
+```
+我们需要做的只是为TimeSpan类添加一个自定义GetAwaiter扩展方法：
+```C#
+public static class AwaitExtensions
+{
+    public static TaskAwaiter GetAwaiter(this TimeSpan timeSpan)
+    {
+        return Task.Delay(timeSpan).GetAwaiter();
+    }
+}
+```
+这是因为为了支持在较新版本的C＃中“等待”一个给定的对象，所需要的只是对象有一个名为GetAwaiter的方法返回Awaiter对象。 这是伟大的，因为它允许我们等待我们想要的任何东西，像上面的TimeSpan对象，而不需要改变实际的TimeSpan类。
+我们可以使用同样的方法来支持等待其他类型的对象，包括Unity用于协程指令的所有类; 我们可以使WaitForSeconds，WaitForFixedUpdate，WWW等都等同于在协同程序中可以实现的方式。 我们还可以向IEnumerator添加一个GetAwaiter方法，以支持等待协程来允许使用旧的IEnumerator代码来互换异步代码。
+
+```c#
+public class AsyncExample : MonoBehaviour
+{
+    public async void Start()
+    {
+        // Wait one second
+        await new WaitForSeconds(1.0f);
+        // Wait for IEnumerator to complete
+        await CustomCoroutineAsync();
+        await LoadModelAsync();
+        // You can also get the final yielded value from the coroutine
+        var value = (string)(await CustomCoroutineWithReturnValue());
+        // value is equal to "asdf" here
+        // Open notepad and wait for the user to exit
+        var returnCode = await Process.Start("notepad.exe");
+        // Load another scene and wait for it to finish loading
+        await SceneManager.LoadSceneAsync("scene2");
+    }
+    async Task LoadModelAsync()
+    {
+        var assetBundle = await GetAssetBundle("www.my-server.com/myfile");
+        var prefab = await assetBundle.LoadAssetAsync<GameObject>("myasset");
+        GameObject.Instantiate(prefab);
+        assetBundle.Unload(false);
+    }
+    async Task<AssetBundle> GetAssetBundle(string url)
+    {
+        return (await new WWW(url)).assetBundle
+    }
+    IEnumerator CustomCoroutineAsync()
+    {
+        yield return new WaitForSeconds(1.0f);
+    }
+    IEnumerator CustomCoroutineWithReturnValue()
+    {
+        yield return new WaitForSeconds(1.0f);
+        yield return "asdf";
+    }
+}
+```
+
+> 以上为复制的内容 后续会自己理解性的更改
 
 ## 结尾
 瞎琢磨\^O^,自己的一些理解
